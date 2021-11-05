@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
@@ -37,44 +38,62 @@ class AutoCompleteField<T> extends StatefulWidget {
 
 class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
   final _layerLink = LayerLink();
+  final _inputKey = GlobalKey();
   late FocusNode _focusNode;
   late TextEditingController _editController;
   late _AutoCompleteController<T> _autocompleteController;
+  late bool _hasFocusNode;
+  late bool _hasEditingController;
   OverlayEntry? _overlayEntry;
 
   @override
   void initState() {
+    _hasFocusNode = widget.focusNode != null;
+    _hasEditingController = widget.controller != null;
     _editController = widget.controller ?? TextEditingController(text: '');
-    _autocompleteController = _AutoCompleteController<T>(
-      delegate: widget.delegate,
-      duration: const Duration(milliseconds: 500),
-    );
+    _autocompleteController = _AutoCompleteController<T>(delegate: widget.delegate);
     _focusNode = widget.focusNode ?? FocusNode();
-
-    _focusNode.addListener(() {
-      if (_focusNode.hasFocus) {
-        if (_editController.text.length >= 3) {
-          showOverlay();
-          _autocompleteController.query('');
-          _autocompleteController.query(_editController.text);
-        }
-      } else {
-        hideOverlay();
-      }
-    });
-
+    _focusNode.addListener(_onFocusChanged);
     super.initState();
   }
 
-  void showOverlay() {
+  void _onFocusChanged() {
+    if (_focusNode.hasFocus) {
+      _editController.addListener(_onEditChanged);
+      if (_editController.text.length >= 3) {
+        _showOverlay();
+        _autocompleteController.query('');
+        _autocompleteController.query(_editController.text);
+      }
+    } else {
+      _editController.removeListener(_onEditChanged);
+      _hideOverlay();
+    }
+  }
+
+  void _onEditChanged() {
+    final value = _editController.text;
+    if (value.length >= 3) {
+      _autocompleteController.query(value);
+      if (_overlayEntry == null) {
+        _showOverlay();
+      } else {
+        _autocompleteController.reset();
+      }
+    } else {
+      _hideOverlay();
+    }
+  }
+
+  void _showOverlay() {
     if (_overlayEntry != null) {
-      hideOverlay();
+      _hideOverlay();
     }
     _overlayEntry = _createOverlayEntry();
     Overlay.of(context)?.insert(_overlayEntry!);
   }
 
-  void hideOverlay() {
+  void _hideOverlay() {
     if (_overlayEntry != null) {
       _overlayEntry!.remove();
       _overlayEntry = null;
@@ -82,8 +101,9 @@ class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
   }
 
   OverlayEntry _createOverlayEntry() {
+    _getInputSize();
     final renderBox = context.findRenderObject() as RenderBox;
-    final size = renderBox.size;
+    final size = _getInputSize();
     final offset = renderBox.localToGlobal(Offset.zero);
 
     return OverlayEntry(
@@ -94,7 +114,6 @@ class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
             delegate: _AutoCompleteDelegate(
               anchorSize: size,
               anchorOffset: offset,
-              controller: _autocompleteController,
             ),
             child: _buildOverlayEntryContent(),
           ),
@@ -107,7 +126,7 @@ class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
     return Material(
       elevation: 4,
       child: StreamBuilder<List<T>>(
-        stream: _autocompleteController.stream,
+        stream: _autocompleteController.results$,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting || _autocompleteController.searching) {
             return const Center(child: CircularProgressIndicator());
@@ -131,7 +150,7 @@ class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
             child: widget.itemBuilder(context, entry),
             onTap: () {
               widget.onItemSelected?.call(entry);
-              hideOverlay();
+              _hideOverlay();
             },
           );
         },
@@ -139,107 +158,99 @@ class _AutoCompleteFieldState<T> extends State<AutoCompleteField<T>> {
     );
   }
 
+  Size _getInputSize() {
+    final renderBox = _inputKey.currentContext!.findRenderObject() as RenderBox;
+    return renderBox.size;
+  }
+
   @override
   Widget build(BuildContext context) {
     return CompositedTransformTarget(
       link: _layerLink,
-      child: TextField(
-        focusNode: _focusNode,
-        maxLines: widget.maxLines,
-        autofocus: widget.autofocus,
-        keyboardType: widget.keyboardType,
-        controller: _editController,
-        decoration: widget.decoration,
-        onChanged: (value) {
-          if (value.length >= 3) {
-            _autocompleteController.query(value);
-            if (_overlayEntry == null) {
-              showOverlay();
-            } else {
-              _autocompleteController.reset();
-            }
-          } else {
-            hideOverlay();
-          }
-        },
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            TextField(
+              key: _inputKey,
+              focusNode: _focusNode,
+              maxLines: widget.maxLines,
+              autofocus: widget.autofocus,
+              keyboardType: widget.keyboardType,
+              controller: _editController,
+              decoration: widget.decoration,
+              //onChanged: _onInputChanged,
+            ),
+          ],
+        ),
       ),
     );
   }
 
   @override
-  void dispose() async {
-    await _autocompleteController.dispose();
+  void dispose() {
+    _hideOverlay();
+    _focusNode.removeListener(_onFocusChanged);
+    _editController.removeListener(_onEditChanged);
+    if (!_hasFocusNode) _focusNode.dispose();
+    if (!_hasEditingController) _editController.dispose();
+    _autocompleteController.dispose();
     super.dispose();
   }
 }
 
 class _AutoCompleteController<T> {
   final FutureOr<List<T>> Function(String) delegate;
-  final Duration duration;
 
   late StreamController<String> _inputController;
   late StreamController<List<T>> _outputController;
   late StreamSubscription<String> _subscription;
   Timer? _timer;
   bool _searching = false;
-  int _count = 0;
-  String? _lastSearch;
-  List<T> _lastResult = [];
+  String? _query;
+  List<T> _results = [];
 
-  _AutoCompleteController({
-    required this.delegate,
-    required this.duration,
-  }) {
+  Stream<List<T>> get results$ => _outputController.stream;
+  bool get searching => _searching;
+  List<T> get results => _results;
+
+  _AutoCompleteController({required this.delegate}) {
     _inputController = StreamController<String>();
     _outputController = StreamController.broadcast();
-
-    final streamTransformer = StreamTransformer<String, String>.fromHandlers(handleData: _handleData);
-
     _subscription = _inputController.stream // ...
         .distinct() // distinct
         .skipWhile((x) => x.length < 3) // skipWhile
-        .transform(streamTransformer)
+        .transform(StreamTransformer<String, String>.fromHandlers(handleData: _handleData))
         .listen(_onSearch);
   }
 
   void _handleData(String input, EventSink<String> sink) {
-    //print('_handleData: $input');
     _timer?.cancel();
-    _timer = Timer(duration, () => sink.add(input));
+    _timer = Timer(const Duration(milliseconds: 500), () => sink.add(input));
   }
 
   Future<void> _onSearch(String input) async {
-    //print('_onSearch: $input');
-    if (_lastSearch == input) {
-      _outputController.sink.add(_lastResult);
+    if (_query == input) {
+      _setResult(_results);
       return;
     }
+    _query = input;
     _searching = true;
-    _lastSearch = input;
     try {
-      final result = await delegate(input);
-      _searching = false;
-      _count = result.length;
-      _lastResult = result;
-      _outputController.sink.add(result);
+      _setResult(await delegate(input));
     } catch (ex) {
-      _lastResult = [];
-      _searching = false;
-      _outputController.sink.addError(ex);
+      _setResult([]);
     }
   }
 
-  Stream<List<T>> get stream => _outputController.stream;
-  bool get searching => _searching;
-  int get count => _count;
-
-  void query(String? input) {
-    //print('query: $input');
-    reset();
-    _inputController.sink.add(input ?? '');
+  void _setResult(List<T> result) {
+    _searching = false;
+    _results = result;
+    _outputController.sink.add(result);
   }
 
-  void reset() => _outputController.sink.add([]);
+  void query(String? input) => _inputController.sink.add(input ?? '');
+  void reset() => _setResult([]);
 
   Future<void> dispose() async {
     _timer?.cancel();
@@ -252,36 +263,27 @@ class _AutoCompleteController<T> {
 class _AutoCompleteDelegate extends SingleChildLayoutDelegate {
   final Size anchorSize;
   final Offset anchorOffset;
-  final _AutoCompleteController controller;
 
   _AutoCompleteDelegate({
     required this.anchorSize,
     required this.anchorOffset,
-    required this.controller,
   });
 
   @override
   BoxConstraints getConstraintsForChild(BoxConstraints constraints) {
-    int count = controller.count;
-    if (count <= 0) count = 5;
-    //print('count: $count');
-    double minHeight = anchorSize.height * 5;
-    double maxHeight = anchorSize.height * count;
-    final anchorBottom = anchorOffset.dy + anchorSize.height;
-    double fullHeight = constraints.maxHeight - anchorBottom - 15; // 15 = 5 + 10
-    if (fullHeight < 100) fullHeight = 100;
-    maxHeight = maxHeight.clamp(100, fullHeight);
-    minHeight = minHeight.clamp(100, maxHeight);
+    final anchorBottom = anchorOffset.dy + anchorSize.height + 2;
+    double maxHeight = constraints.maxHeight - anchorBottom - 10;
+    if (maxHeight < 100) maxHeight = 100;
     return BoxConstraints(
       minWidth: anchorSize.width,
       maxWidth: anchorSize.width,
-      minHeight: minHeight,
-      //maxHeight: maxHeight,
+      minHeight: 100,
+      maxHeight: maxHeight,
     );
   }
 
   @override
-  Offset getPositionForChild(Size size, Size childSize) => Offset(0, anchorSize.height + 5);
+  Offset getPositionForChild(Size size, Size childSize) => Offset(0, anchorSize.height + 2);
 
   @override
   bool shouldRelayout(_AutoCompleteDelegate oldDelegate) => true;
