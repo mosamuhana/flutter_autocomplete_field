@@ -11,12 +11,12 @@ class HomePage extends StatelessWidget {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Test'),
+        title: const Text('AutoComplete Field Example'),
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: AutoCompleteField<User>(
-          decoration: const InputDecoration(labelText: 'Test'),
+          decoration: const InputDecoration(labelText: 'Search'),
           delegate: onSearch,
           //itemExtent: 50,
           itemBuilder: (context, entry) {

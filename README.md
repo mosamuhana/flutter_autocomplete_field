@@ -1,6 +1,9 @@
-# autocomplete_field
+# Flutter autocomplete_field package
 
-A new flutter plugin project.
+Flutter AutoCompleteField widget.
+
+## ScreenShot
+![Screenshot](screenshot.png)
 
 ## Getting Started
 

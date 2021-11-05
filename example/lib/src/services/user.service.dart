@@ -28,7 +28,7 @@ User _createUser(String firstName) {
     id: _faker.guid.random.integer(1000000, min: 1),
     firstName: firstName,
     lastName: lastName,
-    email: '$firstName.$lastName@example.com',
+    email: '$firstName.$lastName@example.com'.toLowerCase(),
     birthDate: _faker.date.dateTime(minYear: 1970, maxYear: 2000),
   );
 }

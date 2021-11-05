@@ -14,7 +14,6 @@ dependencies:
   faker: ^2.0.0
   autocomplete_field:
     path: ../
-  flutter_dotenv: ^5.0.2
 
 
 dev_dependencies:
