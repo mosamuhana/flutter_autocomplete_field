@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ProjectModuleManager">
+    <modules>
+      <module fileurl="file://$PROJECT_DIR$/autocomplete_field.iml" filepath="$PROJECT_DIR$/autocomplete_field.iml" />
+      <module fileurl="file://$PROJECT_DIR$/android/autocomplete_field_android.iml" filepath="$PROJECT_DIR$/android/autocomplete_field_android.iml" />
+      <module fileurl="file://$PROJECT_DIR$/example/android/autocomplete_field_example_android.iml" filepath="$PROJECT_DIR$/example/android/autocomplete_field_example_android.iml" />
+    </modules>
+  </component>
+</project>
